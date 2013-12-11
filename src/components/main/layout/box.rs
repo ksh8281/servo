@@ -164,7 +164,7 @@ impl ImageBoxInfo {
 #[deriving(Clone)]
 pub struct ScannedTextBoxInfo {
     /// The text run that this represents.
-    run: Arc<~TextRun>,
+    run: Arc<TextRun>,
 
     /// The range within the above text run that this represents.
     range: Range,
@@ -172,7 +172,7 @@ pub struct ScannedTextBoxInfo {
 
 impl ScannedTextBoxInfo {
     /// Creates the information specific to a scanned text box from a range and a text run.
-    pub fn new(run: Arc<~TextRun>, range: Range) -> ScannedTextBoxInfo {
+    pub fn new(run: Arc<TextRun>, range: Range) -> ScannedTextBoxInfo {
         ScannedTextBoxInfo {
             run: run,
             range: range,

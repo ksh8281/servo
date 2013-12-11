@@ -93,7 +93,7 @@ pub struct SolidColorDisplayItem<E> {
 /// Renders text.
 pub struct TextDisplayItem<E> {
     base: BaseDisplayItem<E>,
-    text_run: Arc<~TextRun>,
+    text_run: Arc<TextRun>,
     range: Range,
     color: Color,
 }

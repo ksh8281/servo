@@ -376,7 +376,7 @@ impl Font {
     #[fixed_stack_segment]
     pub fn draw_text_into_context(&mut self,
                               rctx: &RenderContext,
-                              run: &~TextRun,
+                              run: &TextRun,
                               range: &Range,
                               baseline_origin: Point2D<Au>,
                               color: Color) {
