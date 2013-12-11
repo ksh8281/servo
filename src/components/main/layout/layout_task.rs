@@ -19,6 +19,9 @@ use layout::incremental::{RestyleDamage, BubbleWidths};
 use layout::util::{LayoutData, LayoutDataAccess};
 
 use extra::arc::{Arc, RWArc, MutexArc};
+use extra::time::precise_time_ns;
+use std::task::{SingleThreaded, spawn_sched};
+use std::rt;
 use geom::point::Point2D;
 use geom::rect::Rect;
 use geom::size::Size2D;
@@ -368,10 +371,11 @@ impl LayoutTask {
                            -> ~Flow: {
         //node.traverse_postorder_mut(&mut FlowConstructor::init(layout_context));
 
+        //let start = precise_time_ns();
         let mut work_list: ~[FlowTreeWorkItem] = ~[];
 
         self.construct_flow_tree_work_item(&mut work_list, node, 0);
-        let worker_count:uint = 4;
+        let worker_count:uint = 4;//rt::default_sched_threads()*2;
 
         let (rport,rch) = stream();
         let rch = SharedChan::new(rch);
@@ -389,7 +393,7 @@ impl LayoutTask {
             let rc = rch.clone();
             let screen_size = self.screen_size.get_ref().clone();
 
-            do spawn {
+            do spawn_sched(SingleThreaded) {
                 let (backend,profile_ch,ic) = ccc.take();
                 let font_ctx = ~FontContext::new(backend, true, profile_ch);
 
@@ -402,10 +406,7 @@ impl LayoutTask {
 
                 while true {
                     //let dd:Option<~[AbstractNode<LayoutView>]> = port2.recv();
-                    let dd = unsafe{
-                        let dd:Option<(int,int)> = port2.recv();
-                        dd
-                    };
+                    let dd: Option<(int,int)> = port2.recv();
                     if dd.is_none() {
                         break;
                     }
@@ -420,21 +421,23 @@ impl LayoutTask {
                 }
             }
         }
-
-        let mut idx:uint = work_list.len() - 1;
+        //let end = precise_time_ns();
+        //println!("{:?}",((end-start) as f64)/1000000f64);
+        //let mut idx:uint = work_list.len() - 1;
 
         for work_l in work_list.rev_iter() {
-            let mut slice_count = work_l.nodes.len()/worker_count;
+            let mut send_count = 0;
+            let mut idx = 0;
+
+            let slice_size = 64;
+            let mut slice_count = work_l.nodes.len()/slice_size;
             if slice_count == 0 {
                 slice_count = 1;
             }
 
-            let mut send_count = 0;
-            let mut idx = 0;
-
-            for x in range(0,worker_count) {
-                let mut end = idx + slice_count;
-                if x == worker_count-1 {
+            for x in range(0,slice_count) {
+                let mut end = idx + slice_size;
+                if x == slice_count-1 {
                     end = work_l.nodes.len();
                 }
 
@@ -448,12 +451,12 @@ impl LayoutTask {
                 if end >= work_l.nodes.len() {
                     break;
                 }
+
             }
 
             for _ in range(0,send_count) {
                 let rec:int = rport.recv();
             }
-            idx = idx - 1;
         }
 
         for _ in range(0,worker_count) {
