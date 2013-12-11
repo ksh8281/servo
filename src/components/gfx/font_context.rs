@@ -63,9 +63,9 @@ impl<'self> FontContext {
         generic_fonts.insert(~"monospace", ~"Menlo");
 
         FontContext { 
-            instance_cache: LRUCache::new(10),
+            instance_cache: LRUCache::new(100),
             font_list: font_list,
-            group_cache: LRUCache::new(10),
+            group_cache: LRUCache::new(100),
             handle: handle,
             backend: backend,
             generic_fonts: generic_fonts,

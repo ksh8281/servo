@@ -456,6 +456,10 @@ impl<'self> FlowConstructor<'self> {
             self.build_boxes_for_replaced_inline_content(node)
         }
     }
+
+    pub fn build(&mut self, node: AbstractNode<LayoutView>) {
+        self.process(node);
+    }
 }
 
 impl<'self> PostorderNodeMutTraversal for FlowConstructor<'self> {

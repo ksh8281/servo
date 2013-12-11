@@ -47,7 +47,7 @@ use servo_util::tree::TreeNodeRef;
 use std::cast::transmute;
 use std::cast;
 use std::cell::Cell;
-use std::comm::Port;
+use std::comm::{Port,SharedChan,SharedPort};
 use std::task;
 use std::util;
 use style::AuthorOrigin;
@@ -194,6 +194,10 @@ impl ImageResponder for LayoutImageResponder {
     }
 }
 
+struct FlowTreeWorkItem {
+    nodes: ~[AbstractNode<LayoutView>],
+}
+
 impl LayoutTask {
     /// Spawns a new layout task.
     pub fn create(id: PipelineId,
@@ -336,6 +340,23 @@ impl LayoutTask {
         }
     }
 
+    fn construct_flow_tree_work_item(&self, work_list: &mut ~[FlowTreeWorkItem],
+                                    node: AbstractNode<LayoutView>, tree_depth: uint) {
+
+        for kid in node.children() {
+            self.construct_flow_tree_work_item(work_list, kid, tree_depth + 1);
+        }
+
+        while work_list.len() < (tree_depth + 1) {
+            work_list.push( FlowTreeWorkItem {
+                nodes: ~[],
+            });
+        }
+
+        work_list[tree_depth].nodes.push(node);
+    }
+
+
     /// Builds the flow tree.
     ///
     /// This corresponds to the various `nsCSSFrameConstructor` methods in Gecko or
@@ -345,8 +366,99 @@ impl LayoutTask {
     #[inline(never)]
     fn construct_flow_tree(&self, layout_context: &mut LayoutContext, node: AbstractNode<LayoutView>)
                            -> ~Flow: {
-        node.traverse_postorder_mut(&mut FlowConstructor::init(layout_context));
+        //node.traverse_postorder_mut(&mut FlowConstructor::init(layout_context));
 
+        let mut work_list: ~[FlowTreeWorkItem] = ~[];
+
+        self.construct_flow_tree_work_item(&mut work_list, node, 0);
+        let worker_count:uint = 4;
+
+        let (rport,rch) = stream();
+        let rch = SharedChan::new(rch);
+
+        let (port2,ch2) = stream();
+        let pt2 = SharedPort::new(port2);
+
+        for _ in range(0,worker_count) {
+            let backend = self.opts.render_backend.clone();
+            let profile_ch = self.profiler_chan.clone();
+            let ic = self.local_image_cache.clone();
+            let send = (backend,profile_ch,ic);
+            let ccc = Cell::new(send);
+            let port2 = pt2.clone();
+            let rc = rch.clone();
+            let screen_size = self.screen_size.get_ref().clone();
+
+            do spawn {
+                let (backend,profile_ch,ic) = ccc.take();
+                let font_ctx = ~FontContext::new(backend, true, profile_ch);
+
+                let mut lc = LayoutContext {
+                    image_cache: ic,
+                    font_ctx: font_ctx,
+                    screen_size: Rect(Point2D(Au(0), Au(0)), screen_size),
+                };
+                let mut fc = FlowConstructor::init(&mut lc);
+
+                while true {
+                    //let dd:Option<~[AbstractNode<LayoutView>]> = port2.recv();
+                    let dd = unsafe{
+                        let dd:Option<(int,int)> = port2.recv();
+                        dd
+                    };
+                    if dd.is_none() {
+                        break;
+                    }
+                    let list = dd.unwrap();
+                    let list:&[AbstractNode<LayoutView>] = unsafe {
+                        cast::transmute(list)
+                    };
+                    for item  in list.iter() {
+                        fc.build(*item);
+                    }
+                    rc.send(0);
+                }
+            }
+        }
+
+        let mut idx:uint = work_list.len() - 1;
+
+        for work_l in work_list.rev_iter() {
+            let mut slice_count = work_l.nodes.len()/worker_count;
+            if slice_count == 0 {
+                slice_count = 1;
+            }
+
+            let mut send_count = 0;
+            let mut idx = 0;
+
+            for x in range(0,worker_count) {
+                let mut end = idx + slice_count;
+                if x == worker_count-1 {
+                    end = work_l.nodes.len();
+                }
+
+                unsafe {
+                    let t:(int,int) = cast::transmute(work_l.nodes.slice(idx,end));
+                    ch2.send(Some(t));
+                }
+                idx = end;
+                send_count = send_count + 1;
+
+                if end >= work_l.nodes.len() {
+                    break;
+                }
+            }
+
+            for _ in range(0,send_count) {
+                let rec:int = rport.recv();
+            }
+            idx = idx - 1;
+        }
+
+        for _ in range(0,worker_count) {
+            ch2.send(None);
+        }
         let result = match *node.mutate_layout_data().ptr {
             Some(ref mut layout_data) => {
                 util::replace(&mut layout_data.flow_construction_result, NoConstructionResult)
