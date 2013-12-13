@@ -47,7 +47,7 @@ impl MatchMethods for AbstractNode<LayoutView> {
     fn match_subtree(&self, stylist: RWArc<Stylist>) {
         // FIXME(pcwalton): Racy. Parallel CSS selector matching is disabled.
         //let num_tasks = rt::default_sched_threads() * 2;
-        let num_tasks = 1;
+        let num_tasks = 8;
         let mut node_count = 0;
         let mut nodes_per_task = vec::from_elem(num_tasks, ~[]);
 
