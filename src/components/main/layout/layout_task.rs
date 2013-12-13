@@ -17,7 +17,7 @@ use layout::flow::{PostorderFlowTraversal};
 use layout::flow;
 use layout::incremental::{RestyleDamage, BubbleWidths};
 use layout::util::{LayoutData, LayoutDataAccess};
-
+use layout::parallel_layout::ParallelFlowBuildTask;
 use extra::arc::{Arc, RWArc, MutexArc};
 use extra::time::precise_time_ns;
 use std::task::{SingleThreaded, spawn_sched};
@@ -201,10 +201,6 @@ impl ImageResponder for LayoutImageResponder {
     }
 }
 
-struct FlowTreeWorkItem {
-    nodes: ~[AbstractNode<LayoutView>],
-}
-
 impl LayoutTask {
     /// Spawns a new layout task.
     pub fn create(id: PipelineId,
@@ -347,23 +343,6 @@ impl LayoutTask {
         }
     }
 
-    fn construct_flow_tree_work_item(&self, work_list: &mut ~[FlowTreeWorkItem],
-                                    node: AbstractNode<LayoutView>, tree_depth: uint) {
-
-        for kid in node.children() {
-            self.construct_flow_tree_work_item(work_list, kid, tree_depth + 1);
-        }
-
-        while work_list.len() < (tree_depth + 1) {
-            work_list.push( FlowTreeWorkItem {
-                nodes: ~[],
-            });
-        }
-
-        work_list[tree_depth].nodes.push(node);
-    }
-
-
     /// Builds the flow tree.
     ///
     /// This corresponds to the various `nsCSSFrameConstructor` methods in Gecko or
@@ -373,165 +352,13 @@ impl LayoutTask {
     #[inline(never)]
     fn construct_flow_tree(&self, layout_context: &mut LayoutContext, node: AbstractNode<LayoutView>)
                            -> ~Flow: {
+
+        let mut task = ParallelFlowBuildTask::new();
+        task.construct_work_item(node,0);
+        task.build_flow(self.opts.clone(), self.profiler_chan.clone(), 
+                        self.local_image_cache.clone(), self.screen_size.get_ref().clone());
+
         //node.traverse_postorder_mut(&mut FlowConstructor::init(layout_context));
-
-        //let start = precise_time_ns();
-        let mut work_list: ~[FlowTreeWorkItem] = ~[];
-
-        self.construct_flow_tree_work_item(&mut work_list, node, 0);
-        let worker_count:uint = 4;//rt::default_sched_threads()*2;
-
-        //let (rport,rch) = stream();
-        //let rch = SharedChan::new(rch);
-
-        struct WorkerInfo {
-            id: uint,
-            worker_port: comm::Port<Option<deque::Worker<(int,int)>>>,
-            worker_chan: comm::Chan<Option<deque::Worker<(int,int)>>>,
-            worker: Option<deque::Worker<(int, int)>>,
-        };
-        let mut worker_list: ~[WorkerInfo] = ~[];
-        let mut pool = deque::BufferPool::new();
-
-        let mut deques = ~[];
-        let mut stealers = ~[];
-        for _ in range(0,worker_count) {
-            let (mut worker,mut stealer) = pool.deque();
-            deques.push(Some(worker));
-            stealers.push(stealer);
-        }
-
-        for idx in range(0,worker_count) {
-            let (port,ch2) = stream();
-            let (port2,ch) = stream();
-
-            let mut worker = deques[idx].take_unwrap();
-            
-            worker_list.push( WorkerInfo {
-                id: idx,
-                worker_chan: ch, //worker->main
-                worker_port: port, //main->worker
-                worker: Some(worker),
-            });
-
-            let backend = self.opts.render_backend.clone();
-            let profile_ch = self.profiler_chan.clone();
-            let ic = self.local_image_cache.clone();
-            let screen_size = self.screen_size.get_ref().clone();
-            
-            let send = (backend,profile_ch,ic,port2,ch2,stealers.clone(),idx);
-            let cell = Cell::new(send);
-
-            do spawn_sched(SingleThreaded) {
-                let (backend,profile_ch,ic,port2,ch2,mut stealers,idx) = cell.take();
-
-                let font_ctx = ~FontContext::new(backend, true, profile_ch);
-                let mut lc = LayoutContext {
-                    image_cache: ic,
-                    font_ctx: font_ctx,
-                    screen_size: Rect(Point2D(Au(0), Au(0)), screen_size),
-                };
-                let mut fc = FlowConstructor::init(&mut lc);
-
-                loop {
-                    let mut worker = port2.recv();
-                    if worker.is_none()
-                    {
-                        break;
-                    }
-                    let mut worker = worker.take_unwrap();
-
-                    loop{
-                        match worker.pop() {
-                            Some(ptr) => {
-                                let list:&[AbstractNode<LayoutView>] = unsafe {
-                                    cast::transmute(ptr)
-                                };
-                                for item  in list.iter() {
-                                    fc.build(*item);
-                                }
-                            },
-                            None => {
-                                let mut steal = false;
-                                for idx in range(0,worker_count) {
-                                    match stealers[idx].steal() {
-                                        Data(r) => {
-                                            steal = true;
-                                            let list:&[AbstractNode<LayoutView>] = unsafe {
-                                                cast::transmute(r)
-                                            };
-                                            for item  in list.iter() {
-                                                fc.build(*item);
-                                            }
-                                        },
-                                        _ => {
-                                        }
-                                    }
-                                }
-
-                                if !steal {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    ch2.send(Some(worker)); 
-                }
-            }
-        }
-        //let end = precise_time_ns();
-        //println!("{:?}",((end-start) as f64)/1000000f64);
-        //let mut idx:uint = work_list.len() - 1;
-
-        for work_l in work_list.rev_iter() {
-            let mut send_count = 0;
-            let mut idx = 0;
-
-            let slice_size = 64;
-            let mut slice_count = work_l.nodes.len()/slice_size;
-            if slice_count == 0 {
-                slice_count = 1;
-            }
-
-            for x in range(0,slice_count) {
-                let mut end = idx + slice_size;
-                if x == slice_count-1 {
-                    end = work_l.nodes.len();
-                }
-
-                unsafe {
-                    let t:(int,int) = cast::transmute(work_l.nodes.slice(idx,end));
-                    //ch2.send(Some(t));
-                    worker_list[x % worker_count].worker.get_mut_ref().push(t);
-                }
-                idx = end;
-                send_count = send_count + 1;
-
-                if end >= work_l.nodes.len() {
-                    break;
-                }
-
-            }
-
-            for idx in range(0,worker_count) {
-                let worker = worker_list[idx].worker.take_unwrap();
-                worker_list[idx].worker_chan.send(Some(worker));
-            }
-
-            //for _ in range(0,send_count) {
-            //    let rec:int = rport.recv();
-            //}
-            //io::timer::sleep(1000);
-            //
-            for idx in range(0,worker_count) {
-                worker_list[idx].worker = worker_list[idx].worker_port.recv();
-            }
-        }
-
-        for idx in range(0,worker_count) {
-            worker_list[idx].worker_chan.send(None);
-        }
         let result = match *node.mutate_layout_data().ptr {
             Some(ref mut layout_data) => {
                 util::replace(&mut layout_data.flow_construction_result, NoConstructionResult)
