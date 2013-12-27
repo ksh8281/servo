@@ -410,6 +410,8 @@ impl Constellation {
                                              self.resource_task.clone(),
                                              self.profiler_chan.clone(),
                                              self.opts.clone());
+        // give default size to script task
+        pipeline.script_chan.send(ResizeInactiveMsg(pipeline.id, self.window_size));
         pipeline.load(url);
 
         self.pending_frames.push(FrameChange {
