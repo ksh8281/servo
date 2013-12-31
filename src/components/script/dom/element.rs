@@ -393,12 +393,12 @@ impl Element {
             match win.page.query_layout(ContentBoxesQuery(node, chan), port) {
                 ContentBoxesResponse(rects) => {
                     do rects.map |r| {
-                        ClientRect::new(
+                        ClientRect::new_from_au(
                             win,
-                            r.origin.y.to_f32().unwrap(),
-                            (r.origin.y + r.size.height).to_f32().unwrap(),
-                            r.origin.x.to_f32().unwrap(),
-                            (r.origin.x + r.size.width).to_f32().unwrap())
+                            &r.origin.y,
+                            &(r.origin.y + r.size.height),
+                            &r.origin.x,
+                            &(r.origin.x + r.size.width))
                     }
                 },
             };
@@ -413,12 +413,12 @@ impl Element {
         let (port, chan) = comm::stream();
         match win.page.query_layout(ContentBoxQuery(node, chan), port) {
             ContentBoxResponse(rect) => {
-                ClientRect::new(
+                ClientRect::new_from_au(
                     win,
-                    rect.origin.y.to_f32().unwrap(),
-                    (rect.origin.y + rect.size.height).to_f32().unwrap(),
-                    rect.origin.x.to_f32().unwrap(),
-                    (rect.origin.x + rect.size.width).to_f32().unwrap())
+                    &rect.origin.y,
+                    &(rect.origin.y + rect.size.height),
+                    &rect.origin.x,
+                    &(rect.origin.x + rect.size.width))
             }
         }
     }

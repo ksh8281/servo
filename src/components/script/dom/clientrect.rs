@@ -5,6 +5,7 @@
 use dom::bindings::codegen::ClientRectBinding;
 use dom::bindings::utils::{Reflectable, Reflector, reflect_dom_object};
 use dom::window::Window;
+use servo_util::geometry::Au;
 
 pub struct ClientRect {
     reflector_: Reflector,
@@ -29,12 +30,22 @@ impl ClientRect {
         }
     }
 
-    pub fn new(window: @mut Window,
+    pub fn new_from_f32(window: @mut Window,
                top: f32, bottom: f32,
                left: f32, right: f32) -> @mut ClientRect {
         let rect = ClientRect::new_inherited(window, top, bottom, left, right);
         reflect_dom_object(@mut rect, window, ClientRectBinding::Wrap)
     }
+
+    pub fn new_from_au(window: @mut Window,
+                top: &Au, bottom: &Au,
+                left: &Au, right: &Au) -> @mut ClientRect {
+        let rect = ClientRect::new_inherited(window, 
+            top.to_nearest_px() as f32, bottom.to_nearest_px() as f32, 
+            left.to_nearest_px() as f32, right.to_nearest_px() as f32);
+        reflect_dom_object(@mut rect, window, ClientRectBinding::Wrap)
+    }
+
 
     pub fn Top(&self) -> f32 {
         self.top
