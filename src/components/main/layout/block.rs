@@ -4,7 +4,7 @@
 
 //! CSS block formatting contexts.
 
-use layout::box::Box;
+use layout::box::{Box,ImageBox};
 use layout::context::LayoutContext;
 use layout::display_list_builder::{DisplayListBuilder, ExtraDisplayListData};
 use layout::flow::{BlockFlowClass, FlowClass, Flow, FlowData, ImmutableFlowUtils};
@@ -247,6 +247,9 @@ impl BlockFlow {
                     self.base.floats_in.clearance(clear)
                 }
             };
+
+            //for img:block
+            cur_y = box.box_height();
 
             top_offset = clearance + box.margin.get().top + box.border.get().top +
                 box.padding.get().top;
@@ -622,8 +625,17 @@ impl Flow for BlockFlow {
             box.compute_padding(style, remaining_width);
 
             // Margins are 0 right now so base.noncontent_width() is just borders + padding.
-            let available_width = remaining_width - box.noncontent_width();
+            let mut available_width = remaining_width - box.noncontent_width();
 
+            match box.specific {
+                ImageBox(ref ibox) => {
+                    let (a,b) = box.minimum_and_preferred_widths();
+                    if available_width > a {
+                        available_width = a;
+                    }
+                },
+                _ => (),
+            }
             // Top and bottom margins for blocks are 0 if auto.
             let margin_top = MaybeAuto::from_style(style.Margin.margin_top,
                                                    remaining_width).specified_or_zero();
@@ -635,6 +647,7 @@ impl Flow for BlockFlow {
             } else {
                 self.compute_block_margins(box, remaining_width, available_width)
             };
+
 
             box.margin.set(SideOffsets2D::new(margin_top,
                                               margin_right,
@@ -681,6 +694,7 @@ impl Flow for BlockFlow {
 
             child_base.flags.propagate_text_alignment_from_parent(self.base.flags)
         }
+
     }
 
     fn assign_height_inorder(&mut self, ctx: &mut LayoutContext) {
@@ -698,7 +712,6 @@ impl Flow for BlockFlow {
             debug!("assign_height_float: assigning height for float {}", self.base.id);
             self.assign_height_float(ctx);
         } else {
-            debug!("assign_height: assigning height for block {}", self.base.id);
             // This is the only case in which a block flow can start an inorder
             // subtraversal.
             if self.is_root && self.base.num_floats > 0 {

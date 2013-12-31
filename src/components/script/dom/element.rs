@@ -21,6 +21,7 @@ use layout_interface::{ContentBoxQuery, ContentBoxResponse, ContentBoxesQuery};
 use layout_interface::{ContentBoxesResponse, ContentChangedDocumentDamage};
 use layout_interface::{MatchSelectorsDocumentDamage};
 use style;
+use servo_util::geometry;
 
 use std::comm;
 use std::hashmap::HashMap;
@@ -415,10 +416,10 @@ impl Element {
             ContentBoxResponse(rect) => {
                 ClientRect::new(
                     win,
-                    rect.origin.y.to_f32().unwrap(),
-                    (rect.origin.y + rect.size.height).to_f32().unwrap(),
-                    rect.origin.x.to_f32().unwrap(),
-                    (rect.origin.x + rect.size.width).to_f32().unwrap())
+                    geometry::to_px(rect.origin.y) as f32,
+                    geometry::to_px(rect.origin.y + rect.size.height) as f32,
+                    geometry::to_px(rect.origin.x) as f32,
+                    geometry::to_px(rect.origin.x + rect.size.width) as f32 ) 
             }
         }
     }

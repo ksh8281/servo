@@ -36,6 +36,13 @@ impl ClientRect {
         reflect_dom_object(@mut rect, window, ClientRectBinding::Wrap)
     }
 
+    pub fn new_from_au(window: @mut Window,
+               top: f32, bottom: f32,
+               left: f32, right: f32) -> @mut ClientRect {
+        let rect = ClientRect::new_inherited(window, top, bottom, left, right);
+        reflect_dom_object(@mut rect, window, ClientRectBinding::Wrap)
+    }
+
     pub fn Top(&self) -> f32 {
         self.top
     }

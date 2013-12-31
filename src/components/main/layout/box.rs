@@ -150,7 +150,6 @@ impl ImageBoxInfo {
         })
     }
 }
-
 /// A box that represents an inline frame (iframe). This stores the pipeline ID so that the size
 /// of this iframe can be communicated via the constellation to the iframe's own layout task.
 #[deriving(Clone)]
@@ -760,6 +759,29 @@ impl Box {
                         debug!("(building display list) no image :(");
                     }
                 }
+
+                // FIXME(pcwalton): This is a bit of an abuse of the logging infrastructure. We
+                // should have a real `SERVO_DEBUG` system.
+                debug!("{:?}", {
+                    let debug_border = SideOffsets2D::new_all_same(Au::from_px(1));
+
+                    do list.with_mut_ref |list| {
+                        let border_display_item = ~BorderDisplayItem {
+                            base: BaseDisplayItem {
+                                      bounds: absolute_box_bounds,
+                                      extra: ExtraDisplayListData::new(self),
+                                  },
+                                  border: debug_border,
+                                  color: SideOffsets2D::new_all_same(rgb(0, 0, 200)),
+                                  style: SideOffsets2D::new_all_same(border_style::solid)
+
+                        };
+                        list.append_item(BorderDisplayItemClass(border_display_item))
+                    }
+
+                    ()
+                });
+
             }
         }
 
