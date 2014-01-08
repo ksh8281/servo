@@ -138,17 +138,43 @@ impl ImageBoxInfo {
     // Calculates the width of an image, accounting for the width attribute.
     fn image_width(&self) -> Au {
         // TODO(brson): Consult margins and borders?
-        self.dom_width.unwrap_or_else(|| {
-            Au::from_px(self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0)).width)
-        })
+        match self.dom_width {
+            Some(width) => {
+                width
+            }, None => {
+                match self.dom_height {
+                    Some(height) => {
+                        let org_size = self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0));
+                        let scale = Au::from_px(org_size.height).to_f32().unwrap()
+                            / height.to_f32().unwrap();
+                        Au::new( (Au::from_px(org_size.width).to_f32().unwrap() / scale) as i32)
+                    }, None => {
+                        Au::from_px(self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0)).width)
+                    }
+                }
+            }
+        }
     }
 
     // Calculate the height of an image, accounting for the height attribute.
     pub fn image_height(&self) -> Au {
         // TODO(brson): Consult margins and borders?
-        self.dom_height.unwrap_or_else(|| {
-            Au::from_px(self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0)).height)
-        })
+        match self.dom_height {
+            Some(height) => {
+                height
+            }, None => {
+                match self.dom_width {
+                    Some(width) => {
+                        let org_size = self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0));
+                        let scale = Au::from_px(org_size.width).to_f32().unwrap()
+                            / width.to_f32().unwrap();
+                        Au::new( (Au::from_px(org_size.height).to_f32().unwrap() / scale) as i32)
+                    }, None => {
+                        Au::from_px(self.image.mutate().ptr.get_size().unwrap_or(Size2D(0, 0)).height)
+                    }
+                }
+            }
+        }
     }
 }
 
