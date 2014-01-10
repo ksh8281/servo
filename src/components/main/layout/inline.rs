@@ -12,7 +12,9 @@ use layout::flow;
 use layout::float_context::FloatContext;
 use layout::util::{ElementMapping};
 use layout::float_context::{PlacementInfo, FloatLeft};
+use style::ComputedValues;
 
+use extra::arc::Arc;
 use extra::container::Deque;
 use extra::ringbuf::RingBuf;
 use geom::{Point2D, Rect, Size2D};
@@ -445,24 +447,30 @@ pub struct InlineFlow {
     // must be well-nested, and are only related to the content of
     // boxes (not lines). Ranges are only kept for non-leaf elements.
     elems: ElementMapping,
+
+    /// style of container
+    container_style: Option<Arc<ComputedValues>>,
 }
 
 impl InlineFlow {
-    pub fn new(base: FlowData) -> InlineFlow {
+    pub fn new(base: FlowData, container_style: Option<Arc<ComputedValues>>) -> InlineFlow {
         InlineFlow {
             base: base,
             boxes: ~[],
             lines: ~[],
             elems: ElementMapping::new(),
+            container_style: container_style,
         }
     }
 
-    pub fn from_boxes(base: FlowData, boxes: ~[Box]) -> InlineFlow {
+    pub fn from_boxes(base: FlowData, boxes: ~[Box],
+                      container_style: Option<Arc<ComputedValues>>) -> InlineFlow {
         InlineFlow {
             base: base,
             boxes: boxes,
             lines: ~[],
             elems: ElementMapping::new(),
+            container_style: container_style,
         }
     }
 
@@ -849,6 +857,7 @@ impl Flow for InlineFlow {
 
                 cur_box.position.mutate().ptr.origin.y = cur_box.position.get().origin.y +
                     adjust_offset;
+                *cur_box.base_line.mutate().ptr = baseline_offset + line.bounds.origin.y;
             }
 
             // This is used to set the top y position of the next linebox in the next loop.
@@ -868,7 +877,7 @@ impl Flow for InlineFlow {
                                       .translate(Point2D(Au::new(0),
                                                          -self.base.position.size.height));
     }
-
+    
     fn collapse_margins(&mut self,
                         _: bool,
                         _: &mut bool,

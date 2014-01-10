@@ -89,6 +89,24 @@ pub struct Box {
 
     /// positioned box offsets
     position_offsets: Slot<SideOffsets2D<Au>>,
+
+    /// Inline extra data
+    inline_data: Option<~[InlineData]>,
+
+    /// Inline baseline
+    base_line: Slot<Au>,
+}
+
+#[deriving(Clone)]
+pub struct InlineData {
+    padding: Slot<SideOffsets2D<Au>>,
+    border: Slot<SideOffsets2D<Au>>,
+    margin: Slot<SideOffsets2D<Au>>,
+    style: Arc<ComputedValues>,
+    font_height: Au,
+    font_ascent: Au,
+    is_left_edge: bool,
+    is_right_edge: bool,
 }
 
 /// Info specific to the kind of box. Keep this enum small.
@@ -262,6 +280,8 @@ impl Box {
             margin: Slot::init(Zero::zero()),
             specific: specific,
             position_offsets: Slot::init(Zero::zero()),
+            inline_data: None,
+            base_line: Slot::init(Au::new(0)),
         }
     }
 
@@ -284,7 +304,9 @@ impl Box {
             padding: Slot::init(self.padding.get()),
             margin: Slot::init(self.margin.get()),
             specific: specific,
-            position_offsets: Slot::init(Zero::zero())
+            position_offsets: Slot::init(Zero::zero()),
+            inline_data: self.inline_data.clone(),
+            base_line: Slot::init(self.base_line.get()),
         }
     }
 
@@ -442,7 +464,14 @@ impl Box {
     }
 
     pub fn vertical_align(&self) -> vertical_align::T {
-        self.style().Box.vertical_align
+        match self.inline_data { 
+            Some(ref data) => {
+                data[0].style.get().Box.vertical_align
+            },
+            None => {
+                self.style().Box.vertical_align
+            }
+        }
     }
 
     /// Returns the text decoration of this box, according to the style of the nearest ancestor
@@ -497,7 +526,38 @@ impl Box {
     pub fn paint_background_if_applicable<E:ExtraDisplayListData>(
                                           &self,
                                           list: &Cell<DisplayList<E>>,
-                                          absolute_bounds: &Rect<Au>) {
+                                          absolute_bounds: &Rect<Au>,
+                                          offset: &Point2D<Au>) {
+        match self.inline_data {
+            Some(ref inline_data) => {
+                let mut bg_rect = absolute_bounds.clone();
+                for data in inline_data.rev_iter() {
+                    // TODO calcute border,margin,padding
+                    let y = self.base_line.get() - data.font_ascent + offset.y;
+                    bg_rect.origin.y = y;
+                    bg_rect.size.height = data.font_height;
+                    let style = data.style.get();
+                    let background_color = style.
+                        resolve_color(style.Background.background_color);
+
+                    if !background_color.alpha.approx_eq(&0.0) {
+                        list.with_mut_ref(|list| {
+                            let solid_color_display_item = ~SolidColorDisplayItem {
+                                base: BaseDisplayItem {
+                                    bounds: bg_rect.clone(),
+                                    extra: ExtraDisplayListData::new(self),
+                                },
+                                color: background_color.to_gfx_color(),
+                            };
+
+                            list.append_item(SolidColorDisplayItemClass(solid_color_display_item))
+                        })
+                    }
+                }
+            },
+            None => {}
+        }
+        
         // FIXME: This causes a lot of background colors to be displayed when they are clearly not
         // needed. We could use display list optimization to clean this up, but it still seems
         // inefficient. What we really want is something like "nearest ancestor element that
@@ -602,7 +662,7 @@ impl Box {
         }
 
         // Add the background to the list, if applicable.
-        self.paint_background_if_applicable(list, &absolute_box_bounds);
+        self.paint_background_if_applicable(list, &absolute_box_bounds, &offset);
 
         match self.specific {
             UnscannedTextBox(_) => fail!("Shouldn't see unscanned boxes here."),

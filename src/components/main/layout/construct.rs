@@ -23,20 +23,23 @@
 use css::node_style::StyledNode;
 use layout::block::BlockFlow;
 use layout::box::{Box, GenericBox, IframeBox, IframeBoxInfo, ImageBox, ImageBoxInfo};
-use layout::box::{UnscannedTextBox, UnscannedTextBoxInfo};
+use layout::box::{UnscannedTextBox, UnscannedTextBoxInfo, InlineData};
 use layout::context::LayoutContext;
 use layout::float_context::FloatType;
-use layout::flow::{Flow, FlowData, MutableFlowUtils};
+use layout::flow::{Flow, FlowData, MutableFlowUtils, BlockFlowClass};
 use layout::inline::InlineFlow;
 use layout::text::TextRunScanner;
 use layout::util::LayoutDataAccess;
 use layout::wrapper::{LayoutNode, PostorderNodeMutTraversal};
+use gfx::text::text_run::TextRun;
 
 use script::dom::element::{HTMLIframeElementTypeId, HTMLImageElementTypeId};
 use script::dom::node::{CommentNodeTypeId, DoctypeNodeTypeId, DocumentFragmentNodeTypeId};
 use script::dom::node::{DocumentNodeTypeId, ElementNodeTypeId, TextNodeTypeId};
 use servo_util::slot::Slot;
+use servo_util::range::Range;
 use std::util;
+use std::num::Zero;
 use style::computed_values::{display, float};
 
 /// The results of flow construction for a DOM node.
@@ -234,7 +237,21 @@ impl<'self> FlowConstructor<'self> {
     fn flush_inline_boxes_to_flow(&mut self, boxes: ~[Box], flow: &mut ~Flow:, node: LayoutNode) {
         if boxes.len() > 0 {
             let inline_base = FlowData::new(self.next_flow_id(), node);
-            let mut inline_flow = ~InlineFlow::from_boxes(inline_base, boxes) as ~Flow:;
+            let container_style = match flow.class() {
+                BlockFlowClass => {
+                    match flow.as_block().box {
+                        Some(ref box) => {
+                            Some(box.style.clone())
+                        },
+                        None => {
+                            None
+                        }
+                    }
+                },
+                _ => None,
+            };
+            let mut inline_flow = ~InlineFlow::from_boxes(inline_base, boxes,
+                                                          container_style) as ~Flow:;
             TextRunScanner::new().scan_for_runs(self.layout_context, inline_flow);
             flow.add_new_child(inline_flow)
         }
@@ -414,8 +431,61 @@ impl<'self> FlowConstructor<'self> {
             }
         }
 
-        // TODO(pcwalton): Add in our own borders/padding/margins if necessary.
+        // Add in our own borders/padding/margins for inline boxes if necessary.
+        match opt_box_accumulator {
+            Some(ref mut boxes) => {
+                let box = self.build_box_for_node(node);
+                let font_style = box.font_style();
+                let fontgroup = self.layout_context.font_ctx.get_resolved_font_for_style(&font_style);
+                let decoration = box.style().Text.text_decoration;
+                let run = fontgroup.with_borrow( |fg| {
+                    fg.fonts[0].with_mut_borrow( |font| {
+                        TextRun::new(font, ~"", decoration)
+                    })
+                });
+                let metrics = run.metrics_for_range(&Range::new(0,0));
+                let font_height = metrics.bounding_box.size.height;
+                let font_ascent = metrics.ascent;
+                for box in boxes.mut_iter() {
+                    match box.inline_data {
+                        Some(_) => {},
+                        None => {
+                            box.inline_data = Some(~[]);
+                        }
+                    }
 
+                    // TODO (ksh8281) 
+                    let border = Slot::init(Zero::zero());
+                    let padding = Slot::init(Zero::zero());
+                    let margin = Slot::init(Zero::zero());
+                    let style = node.style().clone();
+                    let is_left_edge = true;
+                    let is_right_edge = true;
+                    match box.inline_data {
+                        Some(ref mut data) => {
+                            data.push(
+                                InlineData {
+                                    padding: padding,
+                                    border: border,
+                                    margin: margin,
+                                    style: style,
+                                    font_height: font_height,
+                                    font_ascent: font_ascent,
+                                    is_left_edge: is_left_edge,
+                                    is_right_edge: is_right_edge,
+                                }
+                            );
+                        },
+                        None => {
+                            fail!();
+                        }
+                    }
+                    
+                }
+            },
+            None => {
+            }
+        }
         // Finally, make a new construction result.
         if opt_inline_block_splits.len() > 0 || opt_box_accumulator.len() > 0 {
             let construction_item = InlineBoxesConstructionItem(InlineBoxesConstructionResult {
