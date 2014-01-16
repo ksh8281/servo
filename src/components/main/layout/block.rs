@@ -640,6 +640,7 @@ impl Flow for BlockFlow {
         }
 
         for box_ in self.box_.iter() {
+            box_.assign_width(self.base.position.size.width);
             let style = box_.style();
 
             // The text alignment of a block flow is the text alignment of its box's style.
